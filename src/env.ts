@@ -6,8 +6,8 @@ export const env = createEnv({
     SERVER_URL: z.url().optional(),
     // SQLite via libSQL. `file:local.db` for local-only work;
     // `libsql://...turso.io` + token in production.
-    DATABASE_URL: z.string().min(1).default('file:local.db'),
-    DATABASE_TOKEN: z.string().optional(),
+    TURSO_DATABASE_URL: z.string().min(1).default('file:local.db'),
+    TURSO_AUTH_TOKEN: z.string().optional(),
     BETTER_AUTH_SECRET: z.string().min(1),
     BETTER_AUTH_URL: z.url().optional(),
   },
