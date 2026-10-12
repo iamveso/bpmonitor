@@ -13,6 +13,7 @@ import {
   readWorkbookRows,
   XLSX_CONTENT_TYPE,
 } from '../../lib/excel'
+import { invalidateDashboardStats } from '../../lib/readings'
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024
 
@@ -162,6 +163,7 @@ export const Route = createFileRoute('/api/import')({
           errors: parsed.errors,
           summary,
         }
+        invalidateDashboardStats(userId)
         return Response.json(result)
       },
     },

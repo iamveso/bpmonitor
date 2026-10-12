@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/solid-router'
 import { asc, eq } from 'drizzle-orm'
 
 import { db } from '../../db'
-import { readings } from '../../db/schema'
+import { readings, timeOfDayOrder } from '../../db/schema'
 import { auth } from '../../lib/auth'
 import { filterByPeriod, isBpPeriod, toIsoDate } from '../../lib/bp'
 import { buildReportBuffer, XLSX_CONTENT_TYPE } from '../../lib/excel'
@@ -24,7 +24,7 @@ export const Route = createFileRoute('/api/report')({
           .select()
           .from(readings)
           .where(eq(readings.userId, session.user.id))
-          .orderBy(asc(readings.date), asc(readings.timeOfDay))
+          .orderBy(asc(readings.date), asc(timeOfDayOrder))
 
         const scoped = filterByPeriod(all, period)
 

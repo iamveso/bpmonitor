@@ -232,6 +232,25 @@ function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
 }
 
+/** Start of the day `months` calendar months before `date`, clamped to the
+ * last valid day when the target month is shorter (e.g. 31 May → 28/29 Feb). */
+function monthsAgo(date: Date, months: number): Date {
+  const target = new Date(
+    date.getFullYear(),
+    date.getMonth() - months,
+    date.getDate(),
+  )
+  if (target.getDate() !== date.getDate()) target.setDate(0)
+  return startOfDay(target)
+}
+
+/** Start of the day `days` days before `date`. */
+function daysAgo(date: Date, days: number): Date {
+  const start = startOfDay(date)
+  start.setDate(start.getDate() - days)
+  return start
+}
+
 function endOfDay(date: Date): Date {
   return new Date(
     date.getFullYear(),
@@ -289,8 +308,10 @@ export function isBpPeriod(value: unknown): value is BpPeriod {
 }
 
 /**
- * Inclusive calendar range for the *current* period, or `null` for "all time".
- * Weeks start on Monday; quarters are calendar quarters.
+ * Inclusive range for the *current* period, or `null` for "all time". Daily
+ * and monthly use the current calendar day/month; weekly is the last 7 days,
+ * quarterly the last 3 months and yearly the last 12 months (rolling windows
+ * ending today).
  */
 export function getPeriodRange(
   period: BpPeriod,
@@ -301,28 +322,17 @@ export function getPeriodRange(
   switch (period) {
     case 'daily':
       return { start: startOfDay(now), end: endOfDay(now) }
-    case 'weekly': {
-      const start = startOfWeek(now)
-      const end = new Date(start)
-      end.setDate(end.getDate() + 6)
-      return { start, end: endOfDay(end) }
-    }
+    case 'weekly':
+      return { start: daysAgo(now, 6), end: endOfDay(now) }
     case 'monthly': {
       const start = new Date(year, now.getMonth(), 1)
       const end = new Date(year, now.getMonth() + 1, 0)
       return { start, end: endOfDay(end) }
     }
-    case 'quarterly': {
-      const quarter = Math.floor(now.getMonth() / 3)
-      const start = new Date(year, quarter * 3, 1)
-      const end = new Date(year, quarter * 3 + 3, 0)
-      return { start, end: endOfDay(end) }
-    }
+    case 'quarterly':
+      return { start: monthsAgo(now, 3), end: endOfDay(now) }
     case 'yearly':
-      return {
-        start: new Date(year, 0, 1),
-        end: endOfDay(new Date(year, 11, 31)),
-      }
+      return { start: monthsAgo(now, 12), end: endOfDay(now) }
     case 'all':
       return null
   }

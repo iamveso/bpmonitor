@@ -112,10 +112,13 @@ describe('normalizeTimeOfDay', () => {
     expect(normalizeTimeOfDay('a.m.')).toBe('morning')
     expect(normalizeTimeOfDay('Evening')).toBe('evening')
     expect(normalizeTimeOfDay('PM')).toBe('evening')
+    expect(normalizeTimeOfDay('Afternoon')).toBe('afternoon')
+    expect(normalizeTimeOfDay('midday')).toBe('afternoon')
+    expect(normalizeTimeOfDay('noon')).toBe('afternoon')
   })
 
   it('returns null for unrecognised slots', () => {
-    expect(normalizeTimeOfDay('Midday')).toBeNull()
+    expect(normalizeTimeOfDay('Midday')).toBe('afternoon')
     expect(normalizeTimeOfDay(null)).toBeNull()
     expect(normalizeTimeOfDay('')).toBeNull()
   })

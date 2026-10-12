@@ -167,11 +167,10 @@ describe('getPeriodRange', () => {
     expect(range.end.getMinutes()).toBe(59)
   })
 
-  it('weekly runs Monday to Sunday', () => {
+  it('weekly is the last 7 days', () => {
     const range = rangeOf('weekly', now)
-    expect(range.start.getDay()).toBe(1)
-    expect(toIsoDate(range.start)).toBe('2026-04-13')
-    expect(toIsoDate(range.end)).toBe('2026-04-19')
+    expect(toIsoDate(range.start)).toBe('2026-04-09')
+    expect(toIsoDate(range.end)).toBe('2026-04-15')
   })
 
   it('monthly runs first to last day', () => {
@@ -180,16 +179,21 @@ describe('getPeriodRange', () => {
     expect(toIsoDate(range.end)).toBe('2026-04-30')
   })
 
-  it('quarterly runs the calendar quarter', () => {
+  it('quarterly is the last 3 months', () => {
     const range = rangeOf('quarterly', now)
-    expect(toIsoDate(range.start)).toBe('2026-04-01')
-    expect(toIsoDate(range.end)).toBe('2026-06-30')
+    expect(toIsoDate(range.start)).toBe('2026-01-15')
+    expect(toIsoDate(range.end)).toBe('2026-04-15')
   })
 
-  it('yearly runs the calendar year', () => {
+  it('yearly is the last 12 months', () => {
     const range = rangeOf('yearly', now)
-    expect(toIsoDate(range.start)).toBe('2026-01-01')
-    expect(toIsoDate(range.end)).toBe('2026-12-31')
+    expect(toIsoDate(range.start)).toBe('2025-04-15')
+    expect(toIsoDate(range.end)).toBe('2026-04-15')
+  })
+
+  it('clamps month-end when the target month is shorter', () => {
+    const range = rangeOf('quarterly', new Date(2026, 4, 31))
+    expect(toIsoDate(range.start)).toBe('2026-02-28')
   })
 
   it('all time has no range', () => {
@@ -218,28 +222,27 @@ describe('filterByPeriod', () => {
     expect(ids(filterByPeriod(readings, 'weekly', now))).toEqual(['c'])
   })
 
-  it('filters by month and quarter', () => {
+  it('filters by month', () => {
     expect(ids(filterByPeriod(readings, 'monthly', now))).toEqual([
       'b',
       'c',
       'd',
     ])
+  })
+
+  it('filters by rolling quarter (last 3 months)', () => {
     expect(ids(filterByPeriod(readings, 'quarterly', now))).toEqual([
+      'a',
       'b',
       'c',
-      'd',
-      'e',
     ])
   })
 
-  it('filters by year', () => {
+  it('filters by rolling year', () => {
     expect(ids(filterByPeriod(readings, 'yearly', now))).toEqual([
       'a',
       'b',
       'c',
-      'd',
-      'e',
-      'f',
     ])
   })
 

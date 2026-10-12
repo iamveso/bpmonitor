@@ -24,6 +24,7 @@ import {
   listReadingsPage,
   type ReadingDTO,
   type ReadingsPageCursor,
+  SLOT_ORDER,
 } from '../../../lib/readings'
 import { cn } from '../../../lib/utils'
 
@@ -35,7 +36,8 @@ type LoadStatus = 'loading' | 'ready' | 'error'
 
 function compareReadings(a: ReadingDTO, b: ReadingDTO): number {
   if (a.date !== b.date) return a.date < b.date ? 1 : -1
-  if (a.timeOfDay !== b.timeOfDay) return a.timeOfDay < b.timeOfDay ? -1 : 1
+  if (a.timeOfDay !== b.timeOfDay)
+    return SLOT_ORDER[a.timeOfDay] - SLOT_ORDER[b.timeOfDay]
   return 0
 }
 
@@ -143,7 +145,7 @@ function EntriesPage() {
             Readings
           </h1>
           <p class="mt-1 text-sm text-muted-foreground">
-            Every morning and evening measurement, newest first.
+            Every morning, afternoon and evening measurement, newest first.
           </p>
         </div>
         <div class="flex items-center gap-2">
@@ -350,8 +352,8 @@ function EmptyState() {
         <div class="space-y-1">
           <h2 class="text-lg font-semibold">No readings yet</h2>
           <p class="max-w-sm text-sm text-muted-foreground">
-            Log your first morning or evening reading to start seeing your
-            trends.
+            Log your first morning, afternoon or evening reading to start seeing
+            your trends.
           </p>
         </div>
         <Link to="/entries/new">

@@ -22,8 +22,11 @@ import {
 
 const { Workbook } = ExcelJS
 
-import type { TimeOfDay } from './reading-schema'
-import { readingInputSchema } from './reading-schema'
+import {
+  slotLabel as formatSlotLabel,
+  readingInputSchema,
+  type TimeOfDay,
+} from './reading-schema'
 
 // ---------------------------------------------------------------------------
 // Excel import. The pure helpers in the first half are framework-free so they
@@ -237,16 +240,24 @@ export function parseReadingCell(
   return { systolic: Number(match[1]), diastolic: Number(match[2]) }
 }
 
-/** Normalise a `Time of Day` cell case-insensitively (Morning/AM/M → morning). */
+const TIME_OF_DAY_ALIASES: Record<string, TimeOfDay | null> = {
+  morning: 'morning',
+  am: 'morning',
+  afternoon: 'afternoon',
+  midday: 'afternoon',
+  noon: 'afternoon',
+  pm: 'evening',
+  evening: 'evening',
+}
+
+/** Normalise a `Time of Day` cell case-insensitively. */
 export function normalizeTimeOfDay(value: unknown): TimeOfDay | null {
   if (value == null) return null
 
   const text = String(value).trim().toLowerCase().replace(/[.\s]/g, '')
+  if (text.length === 0) return null
 
-  if (text === 'morning' || text === 'am') return 'morning'
-  if (text === 'evening' || text === 'pm') return 'evening'
-
-  return null
+  return TIME_OF_DAY_ALIASES[text] ?? null
 }
 
 function parseOptionalInt(
@@ -334,7 +345,9 @@ function parseImportRow(
 
   const timeOfDay = normalizeTimeOfDay(readCell('timeOfDay'))
   if (!timeOfDay)
-    errors.push('Invalid "Time of Day" (expected Morning/Evening or AM/PM).')
+    errors.push(
+      'Invalid "Time of Day" (expected Morning/Afternoon/Evening or AM/PM).',
+    )
 
   const reading = parseReadingCell(readCell('reading'))
   if (!reading) {
@@ -364,7 +377,9 @@ function parseImportRow(
 
   const validated = readingInputSchema.safeParse(candidate)
   if (!validated.success) {
-    const messages = validated.error.issues.map((issue) => issue.message)
+    const messages = validated.error.issues.map(
+      (issue: import('zod').ZodIssue) => issue.message,
+    )
     return { errors: messages }
   }
 
@@ -555,10 +570,6 @@ function formatTimestamp(date: Date): string {
   return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-function slotLabel(timeOfDay: TimeOfDay): string {
-  return timeOfDay === 'morning' ? 'Morning' : 'Evening'
-}
-
 function buildReadingsSheet(
   workbook: ExcelWorkbookInstance,
   readings: readonly ReportReading[],
@@ -586,7 +597,7 @@ function buildReadingsSheet(
     )
     sheet.addRow([
       toDisplayDate(reading.date),
-      slotLabel(reading.timeOfDay),
+      formatSlotLabel(reading.timeOfDay),
       `${reading.systolic}/${reading.diastolic}`,
       reading.heartRate ?? '',
       reading.medications ?? '',
@@ -658,15 +669,15 @@ function buildSummarySheet(
   if (!anyCategory) addPair('No readings in range', '')
   sheet.addRow([''])
 
-  addSection('Morning vs evening')
-  for (const slot of ['morning', 'evening'] as const) {
+  addSection('Morning vs afternoon vs evening')
+  for (const slot of ['morning', 'afternoon', 'evening'] as const) {
     const slotReadings = readings.filter((r) => r.timeOfDay === slot)
     const slotAverage = averageReadings(slotReadings)
     const summary =
       slotAverage.count > 0
         ? `${slotAverage.count} reading(s) · ${slotAverage.systolic}/${slotAverage.diastolic}`
         : 'No readings'
-    addPair(slotLabel(slot), summary)
+    addPair(formatSlotLabel(slot), summary)
   }
 }
 
@@ -684,7 +695,7 @@ function buildNotesSheet(workbook: ExcelWorkbookInstance): void {
     '- Hypertensive crisis: above 180 systolic and/or above 120 diastolic — seek emergency care',
     '- Low: below 90 systolic or below 60 diastolic',
     'A reading is classified by the worse of the two values (systolic or diastolic).',
-    'One reading is kept per morning and one per evening for each day.',
+    'One reading is kept per morning, afternoon and evening for each day.',
     'Disclaimer: averages are indicative and are not a diagnosis. Discuss these readings with a healthcare professional. In a hypertensive crisis, seek emergency medical care immediately.',
   ]
 

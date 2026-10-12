@@ -144,9 +144,10 @@ function ImportPage() {
         &ldquo;Reading&rdquo; can be a pair like{' '}
         <span class="font-medium">132/78</span>. The required columns are{' '}
         <span class="font-medium">Date</span>,{' '}
-        <span class="font-medium">Time of Day</span> (Morning/Evening or AM/PM)
-        and <span class="font-medium">Reading</span>; the rest are optional. One
-        reading is kept per morning and per evening each day.
+        <span class="font-medium">Time of Day</span> (Morning/Afternoon/Evening
+        or AM/PM) and <span class="font-medium">Reading</span>; the rest are
+        optional. One reading is kept per morning, afternoon and evening each
+        day.
       </p>
     </div>
   )
@@ -163,6 +164,9 @@ function DropZone(props: { busy: boolean; onFile: (event: Event) => void }) {
       </span>
       <span class="text-sm text-muted-foreground">
         Click to browse, or use the template above to start fresh.
+      </span>
+      <span class="text-xs text-muted-foreground max-w-md">
+        For larger files, upload may take a moment while we analyse it.
       </span>
       <input
         type="file"
@@ -193,7 +197,9 @@ function CurrentFile(props: { file: () => File | null }) {
         <p class="truncate text-sm font-medium">{props.file()?.name}</p>
         <p class="text-xs text-muted-foreground">{sizeLabel()}</p>
       </div>
-      <span class="text-xs text-brand">Analysing…</span>
+      <span class="text-xs text-brand">
+        Analysing… (may take a moment for large files)
+      </span>
     </div>
   )
 }

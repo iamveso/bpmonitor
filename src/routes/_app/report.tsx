@@ -29,7 +29,7 @@ const SHEETS = [
   {
     name: 'Summary',
     detail:
-      'Averages for systolic, diastolic, pulse pressure and heart rate, the overall classification, a category breakdown and the morning vs evening split.',
+      'Averages for systolic, diastolic, pulse pressure and heart rate, the overall classification, a category breakdown and the morning vs afternoon vs evening split.',
   },
   {
     name: 'Notes',

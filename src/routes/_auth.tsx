@@ -28,7 +28,7 @@ const highlights = [
   {
     icon: CalendarIcon,
     title: 'One-tap daily entry',
-    body: 'Morning and evening readings in seconds — no spreadsheets.',
+    body: 'Morning, afternoon and evening readings in seconds — no spreadsheets.',
   },
 ]
 
@@ -73,8 +73,8 @@ function BrandPanel() {
             Your blood pressure, clearly tracked.
           </h1>
           <p class="max-w-sm text-sm leading-relaxed text-white/80">
-            Log morning and evening readings, spot the trend at a glance, and
-            bring clean reports to your next appointment.
+            Log morning, afternoon and evening readings, spot the trend at a
+            glance, and bring clean reports to your next appointment.
           </p>
         </div>
 

@@ -1,15 +1,27 @@
 import { createServerFn } from '@tanstack/solid-start'
 import { getRequest } from '@tanstack/solid-start/server'
-import { and, desc, eq, gt, lt, or } from 'drizzle-orm'
+import { and, desc, eq, gte, lt, lte, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 
 import { db } from '../db'
-import { readings } from '../db/schema'
+import { readings, timeOfDayOrder } from '../db/schema'
 import { auth } from './auth'
+import {
+  averageReadings,
+  type BpCategoryId,
+  type BpPeriod,
+  bucketByPeriod,
+  classifyAverage,
+  classifyReading,
+  getPeriodRange,
+  type ReadingAverage,
+  toIsoDate,
+} from './bp'
 import {
   type ReadingDTO,
   readingIdSchema,
   readingInputSchema,
+  SLOT_ORDER,
   type TimeOfDay,
 } from './reading-schema'
 
@@ -19,6 +31,8 @@ export {
   type ReadingInput,
   readingIdSchema,
   readingInputSchema,
+  SLOT_ORDER,
+  slotLabel,
   type TimeOfDay,
 } from './reading-schema'
 
@@ -40,7 +54,7 @@ const readingsPageSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
-  cursorTime: z.enum(['morning', 'evening']).optional(),
+  cursorTime: z.enum(['morning', 'afternoon', 'evening']).optional(),
   limit: z.number().int().min(1).max(100).optional(),
 })
 
@@ -70,20 +84,6 @@ function serialize(row: typeof readings.$inferSelect): ReadingDTO {
   }
 }
 
-export const listReadings = createServerFn({ method: 'GET' }).handler(
-  async (): Promise<ReadingDTO[]> => {
-    const userId = await requireUserId()
-
-    const rows = await db
-      .select()
-      .from(readings)
-      .where(eq(readings.userId, userId))
-      .orderBy(desc(readings.date), readings.timeOfDay)
-
-    return rows.map(serialize)
-  },
-)
-
 /**
  * Fetches a single page of readings, newest first. Pagination is keyset based
  * on `(date, timeOfDay)`, which is unique per user, so pages never skip or
@@ -100,24 +100,24 @@ export const listReadingsPage = createServerFn({ method: 'GET' })
         ? { date: data.cursorDate, timeOfDay: data.cursorTime }
         : null
 
-    const where = cursor
-      ? and(
-          eq(readings.userId, userId),
-          or(
-            lt(readings.date, cursor.date),
-            and(
-              eq(readings.date, cursor.date),
-              gt(readings.timeOfDay, cursor.timeOfDay),
-            ),
-          ),
-        )
-      : eq(readings.userId, userId)
-
     const rows = await db
       .select()
       .from(readings)
-      .where(where)
-      .orderBy(desc(readings.date), readings.timeOfDay)
+      .where(
+        and(
+          eq(readings.userId, userId),
+          cursor
+            ? or(
+                lt(readings.date, cursor.date),
+                and(
+                  eq(readings.date, cursor.date),
+                  lt(timeOfDayOrder, SLOT_ORDER[cursor.timeOfDay]),
+                ),
+              )
+            : undefined,
+        ),
+      )
+      .orderBy(desc(readings.date), desc(timeOfDayOrder))
       .limit(limit + 1)
 
     const hasMore = rows.length > limit
@@ -131,32 +131,190 @@ export const listReadingsPage = createServerFn({ method: 'GET' })
     }
   })
 
-// The dashboard needs the full history to compute aggregates. Cache it on the
-// client so navigating back to the dashboard does not re-download everything.
-const LIST_CACHE_TTL = 30_000
-let listCache: { at: number; data: ReadingDTO[] } | undefined
+// --- Dashboard statistics --------------------------------------------------
+//
+// The dashboard needs aggregate numbers, not the raw rows. We compute them on
+// the server, scoped to the selected period with a date-range query, and return
+// a compact payload. Results are cached on both the client (per period, so tab
+// switches are instant) and the server (per user + period) to avoid repeating
+// the scans; server entries are dropped whenever readings change.
 
-export async function listReadingsCached(): Promise<ReadingDTO[]> {
-  if (
-    typeof window !== 'undefined' &&
-    listCache &&
-    Date.now() - listCache.at < LIST_CACHE_TTL
-  ) {
-    return listCache.data
+export interface DashboardTrendPoint {
+  label: string
+  systolic: number
+  diastolic: number
+  heartRate: number | null
+}
+
+export interface DashboardSlotStats {
+  average: ReadingAverage
+  category: BpCategoryId | null
+}
+
+export interface DashboardCategoryCount {
+  id: BpCategoryId
+  count: number
+}
+
+export interface DashboardStats {
+  /** Total readings across every period (drives the empty state). */
+  totalReadings: number
+  /** Readings inside the selected period. */
+  periodCount: number
+  average: ReadingAverage
+  averageCategory: BpCategoryId | null
+  categories: DashboardCategoryCount[]
+  slots: Record<TimeOfDay, DashboardSlotStats>
+  trend: DashboardTrendPoint[]
+  range: { from: string; to: string } | null
+}
+
+const DASHBOARD_PERIODS = [
+  'daily',
+  'weekly',
+  'monthly',
+  'quarterly',
+  'yearly',
+  'all',
+] as const satisfies readonly BpPeriod[]
+
+const dashboardStatsSchema = z.object({
+  period: z.enum(DASHBOARD_PERIODS),
+})
+
+type ReadingRow = typeof readings.$inferSelect
+
+function buildDashboardStats(
+  rows: readonly ReadingRow[],
+  period: BpPeriod,
+  totalReadings: number,
+): DashboardStats {
+  const categoryCounts = new Map<BpCategoryId, number>()
+  for (const reading of rows) {
+    const category = classifyReading(reading.systolic, reading.diastolic)
+    categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1)
   }
 
-  const data = await listReadings()
+  const slots = {} as Record<TimeOfDay, DashboardSlotStats>
+  for (const slot of ['morning', 'afternoon', 'evening'] as const) {
+    const slotReadings = rows.filter((r) => r.timeOfDay === slot)
+    slots[slot] = {
+      average: averageReadings(slotReadings),
+      category: classifyAverage(slotReadings),
+    }
+  }
 
+  const trend = bucketByPeriod(rows, period).map((bucket) => ({
+    label: bucket.label,
+    systolic: bucket.average.systolic ?? 0,
+    diastolic: bucket.average.diastolic ?? 0,
+    heartRate: bucket.average.heartRate,
+  }))
+
+  const dates = rows.map((reading) => reading.date).sort()
+  const window = getPeriodRange(period)
+  const range =
+    dates.length > 0
+      ? { from: dates[0], to: dates[dates.length - 1] }
+      : window
+        ? { from: toIsoDate(window.start), to: toIsoDate(window.end) }
+        : null
+
+  return {
+    totalReadings,
+    periodCount: rows.length,
+    average: averageReadings(rows),
+    averageCategory: classifyAverage(rows),
+    categories: [...categoryCounts.entries()]
+      .map(([id, count]) => ({ id, count }))
+      .sort((a, b) => b.count - a.count),
+    slots,
+    trend,
+    range,
+  }
+}
+
+const STATS_TTL = 30_000
+
+// Server-side cache: keyed by user + period, invalidated on every write.
+const serverStatsCache = new Map<string, { at: number; data: DashboardStats }>()
+
+const statsKey = (userId: string, period: BpPeriod) =>
+  `${userId}\u0000${period}`
+
+/** Drop cached dashboard stats for a user after their readings change. */
+export function invalidateDashboardStats(userId: string): void {
+  const prefix = `${userId}\u0000`
+  for (const key of serverStatsCache.keys()) {
+    if (key.startsWith(prefix)) serverStatsCache.delete(key)
+  }
+}
+
+export const getDashboardStats = createServerFn({ method: 'GET' })
+  .validator(dashboardStatsSchema)
+  .handler(async ({ data }): Promise<DashboardStats> => {
+    const userId = await requireUserId()
+    const { period } = data
+
+    const key = statsKey(userId, period)
+    const cached = serverStatsCache.get(key)
+    if (cached && Date.now() - cached.at < STATS_TTL) return cached.data
+
+    const range = getPeriodRange(period)
+    const rows = await db
+      .select()
+      .from(readings)
+      .where(
+        and(
+          eq(readings.userId, userId),
+          range ? gte(readings.date, toIsoDate(range.start)) : undefined,
+          range ? lte(readings.date, toIsoDate(range.end)) : undefined,
+        ),
+      )
+
+    let totalReadings = rows.length
+    if (period !== 'all') {
+      const [countRow] = await db
+        .select({ count: sql<number>`count(*)`.mapWith(Number) })
+        .from(readings)
+        .where(eq(readings.userId, userId))
+      totalReadings = countRow?.count ?? 0
+    }
+
+    const stats = buildDashboardStats(rows, period, totalReadings)
+    serverStatsCache.set(key, { at: Date.now(), data: stats })
+    return stats
+  })
+
+// Client-side cache: keyed by period so revisiting a tab does not refetch.
+const clientStatsCache = new Map<
+  BpPeriod,
+  { at: number; data: DashboardStats }
+>()
+
+/**
+ * Read dashboard stats for a period, preferring the client cache. Returns the
+ * cached value synchronously when warm so tab switches do not flash a skeleton.
+ */
+export function getDashboardStatsCached(
+  period: BpPeriod,
+): DashboardStats | Promise<DashboardStats> {
   if (typeof window !== 'undefined') {
-    listCache = { at: Date.now(), data }
+    const cached = clientStatsCache.get(period)
+    if (cached && Date.now() - cached.at < STATS_TTL) return cached.data
   }
 
-  return data
+  return getDashboardStats({ data: { period } }).then((data) => {
+    if (typeof window !== 'undefined') {
+      clientStatsCache.set(period, { at: Date.now(), data })
+    }
+    return data
+  })
 }
 
 /** Clears the client-side cache after any change to the readings. */
 export function invalidateReadingsCache(): void {
-  listCache = undefined
+  clientStatsCache.clear()
 }
 
 export const upsertReading = createServerFn({ method: 'POST' })
@@ -193,6 +351,7 @@ export const upsertReading = createServerFn({ method: 'POST' })
       })
       .returning()
 
+    invalidateDashboardStats(userId)
     return serialize(row)
   })
 
@@ -205,5 +364,6 @@ export const deleteReading = createServerFn({ method: 'POST' })
       .delete(readings)
       .where(and(eq(readings.id, data.id), eq(readings.userId, userId)))
 
+    invalidateDashboardStats(userId)
     return { ok: true }
   })

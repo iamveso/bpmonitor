@@ -1,11 +1,29 @@
 import { z } from 'zod'
 
-export type TimeOfDay = 'morning' | 'evening'
+export type TimeOfDay = 'morning' | 'afternoon' | 'evening'
 
 export const READING_SLOTS: { id: TimeOfDay; label: string }[] = [
   { id: 'morning', label: 'Morning' },
+  { id: 'afternoon', label: 'Afternoon' },
   { id: 'evening', label: 'Evening' },
 ]
+
+/** Chronological rank of each slot, used to sort readings within a day. */
+export const SLOT_ORDER: Record<TimeOfDay, number> = {
+  morning: 1,
+  afternoon: 2,
+  evening: 3,
+}
+
+const SLOT_LABELS: Record<TimeOfDay, string> = {
+  morning: 'Morning',
+  afternoon: 'Afternoon',
+  evening: 'Evening',
+}
+
+export function slotLabel(timeOfDay: TimeOfDay): string {
+  return SLOT_LABELS[timeOfDay]
+}
 
 /** Serialisable shape handed to the client (dates as ISO strings). */
 export interface ReadingDTO {
@@ -32,7 +50,7 @@ const optionalText = (max: number) =>
 
 export const readingInputSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD'),
-  timeOfDay: z.enum(['morning', 'evening']),
+  timeOfDay: z.enum(['morning', 'afternoon', 'evening']),
   systolic: z.number().int().min(20).max(400),
   diastolic: z.number().int().min(10).max(300),
   heartRate: z.number().int().min(20).max(300).nullish(),

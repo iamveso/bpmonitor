@@ -27,7 +27,11 @@ export interface ReadingFormProps {
 }
 
 function defaultSlot(): TimeOfDay {
-  return new Date().getHours() < 12 ? 'morning' : 'evening'
+  return new Date().getHours() < 12
+    ? 'morning'
+    : new Date().getHours() < 17
+      ? 'afternoon'
+      : 'evening'
 }
 
 export function ReadingForm(props: ReadingFormProps) {
@@ -152,7 +156,7 @@ export function ReadingForm(props: ReadingFormProps) {
 
         <div class="space-y-2">
           <Label>Time of day</Label>
-          <div class="grid grid-cols-2 gap-2">
+          <div class="grid grid-cols-3 gap-2">
             <For each={READING_SLOTS}>
               {(item) => (
                 <button
@@ -172,7 +176,7 @@ export function ReadingForm(props: ReadingFormProps) {
             </For>
           </div>
           <p class="text-xs text-muted-foreground">
-            One reading per morning and evening slot.
+            One reading per morning, afternoon and evening slot.
           </p>
         </div>
       </div>

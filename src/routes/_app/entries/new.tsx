@@ -18,8 +18,8 @@ function NewEntryPage() {
           New reading
         </h1>
         <p class="mt-1 text-sm text-muted-foreground">
-          Record a morning or evening measurement. Saving the same date and slot
-          again updates it.
+          Record a morning, afternoon or evening measurement. Saving the same
+          date and slot again updates it.
         </p>
       </header>
 

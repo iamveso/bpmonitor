@@ -4,6 +4,7 @@ import { createMemo, createResource, For, type JSX, Show } from 'solid-js'
 import {
   CalendarIcon,
   ChartIcon,
+  ClockIcon,
   DropletIcon,
   HeartPulseIcon,
   InfoIcon,
@@ -18,21 +19,17 @@ import { TrendChart, type TrendPoint } from '../../components/trend-chart'
 import { Button } from '../../components/ui/button'
 import { Card, CardContent } from '../../components/ui/card'
 import {
-  averageReadings,
-  type BpCategoryId,
   type BpCategoryMeta,
   type BpPeriod,
-  bucketByPeriod,
-  classifyAverage,
-  classifyReading,
-  filterByPeriod,
   getCategoryMeta,
-  getPeriodRange,
   isBpPeriod,
   type ReadingAverage,
   toDisplayDate,
 } from '../../lib/bp'
-import { listReadingsCached } from '../../lib/readings'
+import {
+  type DashboardStats,
+  getDashboardStatsCached,
+} from '../../lib/readings'
 import { cn } from '../../lib/utils'
 
 export const Route = createFileRoute('/_app/dashboard')({
@@ -42,14 +39,20 @@ export const Route = createFileRoute('/_app/dashboard')({
   component: DashboardPage,
 })
 
-type Slot = 'morning' | 'evening'
+type Slot = 'morning' | 'afternoon' | 'evening'
+
+const EMPTY_AVERAGE: ReadingAverage = {
+  count: 0,
+  systolic: null,
+  diastolic: null,
+  pulsePressure: null,
+  heartRate: null,
+}
 
 function DashboardPage() {
   const context = Route.useRouteContext()
   const search = Route.useSearch()
   const navigate = useNavigate()
-  const [readings, { refetch }] = createResource(() => listReadingsCached())
-
   const firstName = () =>
     (context().session.user.name || 'there').trim().split(/\s+/)[0]
 
@@ -57,61 +60,52 @@ function DashboardPage() {
   const setPeriod = (next: BpPeriod) =>
     void navigate({ to: '/dashboard', search: { period: next } })
 
-  const all = () => readings() ?? []
-  const filtered = createMemo(() => filterByPeriod(all(), period()))
+  // Tag each payload with the period it was fetched for so a switch never shows
+  // another period's numbers while the new one loads.
+  const [resource, { refetch }] = createResource(period, (p) => {
+    const result = getDashboardStatsCached(p)
+    return result instanceof Promise
+      ? result.then((data) => ({ period: p, data }))
+      : { period: p, data: result }
+  })
 
-  const average = createMemo(() => averageReadings(filtered()))
+  const current = (): DashboardStats | undefined => {
+    const loaded = resource()
+    return loaded && loaded.period === period() ? loaded.data : undefined
+  }
+  const totalReadings = () => current()?.totalReadings ?? 0
+  const periodCount = () => current()?.periodCount ?? 0
+
+  const average = () => current()?.average ?? EMPTY_AVERAGE
   const avgMeta = createMemo<BpCategoryMeta | null>(() => {
-    const id = classifyAverage(filtered())
+    const id = current()?.averageCategory
     return id ? getCategoryMeta(id) : null
   })
 
   const slotAverage = (slot: Slot) =>
-    averageReadings(filtered().filter((reading) => reading.timeOfDay === slot))
+    current()?.slots[slot].average ?? EMPTY_AVERAGE
   const slotMeta = (slot: Slot) => {
-    const id = classifyAverage(
-      filtered().filter((reading) => reading.timeOfDay === slot),
-    )
+    const id = current()?.slots[slot].category
     return id ? getCategoryMeta(id) : null
   }
 
-  const categoryCounts = createMemo(() => {
-    const counts = new Map<BpCategoryId, number>()
-    for (const reading of filtered()) {
-      const id = classifyReading(reading.systolic, reading.diastolic)
-      counts.set(id, (counts.get(id) ?? 0) + 1)
-    }
-    return [...counts.entries()]
-      .map(([id, count]) => ({ id, meta: getCategoryMeta(id), count }))
-      .sort((a, b) => b.count - a.count)
-  })
+  const categoryCounts = createMemo(() =>
+    (current()?.categories ?? []).map((entry) => ({
+      ...entry,
+      meta: getCategoryMeta(entry.id),
+    })),
+  )
   const maxCategoryCount = createMemo(() =>
     categoryCounts().reduce((max, entry) => Math.max(max, entry.count), 0),
   )
 
-  const trendPoints = createMemo<TrendPoint[]>(() =>
-    bucketByPeriod(filtered(), period()).map((bucket) => ({
-      label: bucket.label,
-      systolic: bucket.average.systolic ?? 0,
-      diastolic: bucket.average.diastolic ?? 0,
-      heartRate: bucket.average.heartRate,
-    })),
-  )
-
-  const dateRange = createMemo(() => {
-    const list = filtered()
-    if (list.length === 0) return null
-    const dates = list.map((reading) => reading.date).sort()
-    return { from: dates[0], to: dates[dates.length - 1] }
-  })
+  const trendPoints = createMemo<TrendPoint[]>(() => current()?.trend ?? [])
 
   const rangeLabel = () => {
-    const range = dateRange()
-    if (range)
-      return `${toDisplayDate(range.from)} – ${toDisplayDate(range.to)}`
-    const window = getPeriodRange(period())
-    if (!window) return 'All time'
-    return `${toDisplayDate(window.start)} – ${toDisplayDate(window.end)}`
+    const range = current()?.range
+    return range
+      ? `${toDisplayDate(range.from)} – ${toDisplayDate(range.to)}`
+      : 'All time'
   }
 
   return (
@@ -130,19 +124,19 @@ function DashboardPage() {
         </p>
       </section>
 
-      <Show when={readings.error}>
+      <Show when={resource.error}>
         <ErrorState onRetry={() => void refetch()} />
       </Show>
 
-      <Show when={!readings.error && readings.loading}>
+      <Show when={!resource.error && !current()}>
         <DashboardSkeleton />
       </Show>
 
-      <Show when={!readings.error && !readings.loading && all().length === 0}>
+      <Show when={!resource.error && current() && totalReadings() === 0}>
         <EmptyDashboard />
       </Show>
 
-      <Show when={!readings.error && !readings.loading && all().length > 0}>
+      <Show when={!resource.error && current() && totalReadings() > 0}>
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <PeriodTabs value={period()} onChange={setPeriod} />
           <span class="text-xs font-medium text-muted-foreground">
@@ -151,7 +145,7 @@ function DashboardPage() {
         </div>
 
         <Show
-          when={filtered().length > 0}
+          when={periodCount() > 0}
           fallback={<NoDataForPeriod onReset={() => setPeriod('monthly')} />}
         >
           <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -253,8 +247,8 @@ function DashboardPage() {
             </CardContent>
           </Card>
 
-          <div class="grid gap-4 lg:grid-cols-2">
-            <Card class="animate-fade-up">
+          <div class="grid gap-4 lg:grid-cols-3">
+            <Card class="animate-fade-up lg:col-span-2">
               <CardContent class="p-6">
                 <h2 class="text-lg font-semibold">Categories</h2>
                 <p class="mt-1 text-sm text-muted-foreground">
@@ -295,16 +289,24 @@ function DashboardPage() {
 
             <Card class="animate-fade-up animate-delay-1">
               <CardContent class="p-6">
-                <h2 class="text-lg font-semibold">Morning vs evening</h2>
+                <h2 class="text-lg font-semibold">
+                  Morning vs afternoon vs evening
+                </h2>
                 <p class="mt-1 text-sm text-muted-foreground">
                   Averages for each measurement slot.
                 </p>
-                <div class="mt-5 grid gap-3 sm:grid-cols-2">
+                <div class="mt-5 grid gap-3">
                   <SlotSummary
                     label="Morning"
                     icon={<SunIcon class="h-4 w-4" />}
                     average={slotAverage('morning')}
                     meta={slotMeta('morning')}
+                  />
+                  <SlotSummary
+                    label="Afternoon"
+                    icon={<ClockIcon class="h-4 w-4" />}
+                    average={slotAverage('afternoon')}
+                    meta={slotMeta('afternoon')}
                   />
                   <SlotSummary
                     label="Evening"

@@ -1,4 +1,4 @@
-import { relations } from 'drizzle-orm'
+import { relations, sql } from 'drizzle-orm'
 import {
   index,
   integer,
@@ -111,7 +111,9 @@ export const readings = sqliteTable(
       .references(() => user.id, { onDelete: 'cascade' }),
     // Stored as YYYY-MM-DD; entered/displayed as DD/MM/YYYY.
     date: text('date').notNull(),
-    timeOfDay: text('time_of_day', { enum: ['morning', 'evening'] }).notNull(),
+    timeOfDay: text('time_of_day', {
+      enum: ['morning', 'afternoon', 'evening'],
+    }).notNull(),
     systolic: integer('systolic').notNull(),
     diastolic: integer('diastolic').notNull(),
     heartRate: integer('heart_rate'),
@@ -127,7 +129,7 @@ export const readings = sqliteTable(
       .$defaultFn(() => new Date()),
   },
   (t) => [
-    // One reading per morning and one per evening, per user, per day.
+    // One reading per slot (morning, afternoon, evening), per user, per day.
     uniqueIndex('readings_user_date_slot_idx').on(
       t.userId,
       t.date,
@@ -136,6 +138,13 @@ export const readings = sqliteTable(
     index('readings_user_date_idx').on(t.userId, t.date),
   ],
 )
+
+/**
+ * Orders time-of-day slots chronologically (morning → afternoon → evening).
+ * The stored strings would otherwise sort alphabetically, putting `evening`
+ * before `morning`.
+ */
+export const timeOfDayOrder = sql<number>`case ${readings.timeOfDay} when 'morning' then 1 when 'afternoon' then 2 when 'evening' then 3 else 4 end`
 
 // ---------------------------------------------------------------------------
 // Relations

@@ -68,5 +68,8 @@ describe('readingInputSchema', () => {
     expect(
       readingInputSchema.safeParse({ ...base, timeOfDay: 'noon' }).success,
     ).toBe(false)
+    expect(
+      readingInputSchema.parse({ ...base, timeOfDay: 'afternoon' }).timeOfDay,
+    ).toBe('afternoon')
   })
 })

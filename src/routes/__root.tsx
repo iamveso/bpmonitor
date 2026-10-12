@@ -27,7 +27,7 @@ export const Route = createRootRouteWithContext()({
       {
         name: 'description',
         content:
-          'Track morning and evening blood pressure readings, see your trends, and export clean reports.',
+          'Track morning, afternoon and evening blood pressure readings, see your trends, and export clean reports.',
       },
       { name: 'theme-color', content: '#4f46e5' },
     ],
